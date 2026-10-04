@@ -1,0 +1,11 @@
+name: tkcam
+# Minimal, portable environment. The heavy/CUDA deps (torch 1.12 + cu113) come from pip via
+# requirements.txt (which pins the PyTorch cu113 extra-index-url), so conda only provides Python.
+# Requires an NVIDIA driver compatible with CUDA 11.3 wheels.
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pip
+  - pip:
+      - -r requirements.txt

@@ -1,0 +1,31 @@
+# TKCAM dependencies. Torch 2.8 (CUDA 12.x) — matches the environment that produced the released
+# results; transformers>=4.5x requires torch>=2.x for the T5 conditioning backend.
+# Requires an NVIDIA driver compatible with CUDA 12.x.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.8.0
+torchvision==0.23.0
+numpy==1.26.4
+# text conditioning (CLIP + T5)
+clip @ git+https://github.com/openai/CLIP.git
+transformers==4.57.1
+tokenizers==0.22.1
+huggingface-hub==0.36.0
+safetensors==0.6.2
+sentencepiece==0.2.0
+ftfy
+# core scientific / IO / training utils
+einops==0.6.1
+matplotlib==3.9.4
+Pillow
+PyYAML
+scikit-learn==1.6.1
+scipy==1.10.1
+joblib
+tqdm
+trimesh
+gdown
+ffmpy
+imageio
+imageio-ffmpeg
+vector-quantize-pytorch==1.6.30
+wandb
