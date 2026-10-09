@@ -1,4 +1,6 @@
-# TKCAM — Masked Generative Modeling of Camera Trajectories
+# TKCAM: Text and Keyframe to Camera Trajectory Generation
+
+**NeurIPS 2026** · [Paper (arXiv:2610.11105)](https://arxiv.org/abs/2610.11105) · [Project page](https://linearalgebrayhz.github.io/projects/TKCAM/)
 
 TKCAM generates **camera trajectories** (rotation + translation over time) from text, optionally
 conditioned on a first frame or sparse keyframes. It adapts the MoMask residual masked-transformer recipe
@@ -125,6 +127,22 @@ TKCAM builds directly on excellent prior work — please cite/credit them:
   - DIRECTOR: https://github.com/robin-courant/DIRECTOR
 
 ## Citation
+If you use TKCAM, please cite our paper:
+
+```bibtex
+@misc{yang2026tkcam,
+  title={TKCAM: Text and Keyframe to Camera Trajectory Generation},
+  author={Yang, Haozhe and Dou, Zhiyang and Gu, Zekai and Lin, Cheng and Wang, Wenping and Liu, Yuan and Komura, Taku},
+  year={2026},
+  eprint={2610.11105},
+  archivePrefix={arXiv},
+  primaryClass={cs.CV},
+  url={https://arxiv.org/abs/2610.11105}
+}
+```
+
+Related work used by this repository:
+
 ```bibtex
 @inproceedings{guo2024momask,
   title={MoMask: Generative Masked Modeling of 3D Human Motions},
