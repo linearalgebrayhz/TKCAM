@@ -6,7 +6,7 @@
 
 <a href="https://arxiv.org/abs/2610.11105"><img src="https://img.shields.io/badge/arXiv-2610.11105-b31b1b.svg?logo=arxiv" alt="arXiv"></a>
 <a href="https://linearalgebrayhz.github.io/projects/TKCAM/"><img src="https://img.shields.io/badge/Project%20Page-TKCAM-blue.svg?logo=googlechrome&logoColor=white" alt="Project Page"></a>
-<a href="#"><img src="https://img.shields.io/badge/Dataset-coming%20soon-yellow.svg?logo=huggingface" alt="Dataset"></a>
+<a href="https://huggingface.co/datasets/yhz-linearalgebra/RealEstate10K-Cap"><img src="https://img.shields.io/badge/Dataset-RealEstate10K--Cap-yellow.svg?logo=huggingface" alt="RealEstate10K-Cap dataset on Hugging Face"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License"></a>
 
 </div>
@@ -23,7 +23,8 @@ Pipeline: **RVQ-VAE** tokenizes trajectories → **masked transformer** predicts
 - [x] Training, inference and evaluation code
 - [x] Paper on [arXiv](https://arxiv.org/abs/2610.11105)
 - [x] [Project page](https://linearalgebrayhz.github.io/projects/TKCAM/)
-- [ ] Dataset (mixed RealEstate10K + E.T. + DataDoP captions/trajectories) and benchmark split — *coming soon*
+- [x] [RealEstate10K-Cap dataset](https://huggingface.co/datasets/yhz-linearalgebra/RealEstate10K-Cap)
+- [ ] Mixed dataset (RealEstate10K + E.T. + DataDoP) and benchmark split — *coming soon*
 - [ ] Pretrained checkpoints — *coming soon*
 
 ## Installation
@@ -51,9 +52,11 @@ Notes:
   packages beyond `requirements.txt`.
 
 ### Data and checkpoints
-Datasets and checkpoints are not shipped in this repo (they are gitignored) — the dataset and
-pretrained checkpoints will be released soon (see links above). All scripts resolve paths **relative to
-the repository root** by default, so the easiest setup is to place or symlink your storage there:
+The [RealEstate10K-Cap dataset](https://huggingface.co/datasets/yhz-linearalgebra/RealEstate10K-Cap)
+is available on Hugging Face. The mixed dataset, benchmark split, and pretrained checkpoints are
+**coming soon**. Large data files and checkpoints are not shipped in this repo (they are gitignored).
+All scripts resolve paths **relative to the repository root** by default, so place or symlink your
+storage there:
 ```
 TKCAM/
   checkpoints/   -> trained runs: checkpoints/{dataset_name}/{run_name}/  (+ checkpoints/evaluator/ for CLaTr)
@@ -114,7 +117,7 @@ The CLaTr evaluator used for FID/retrieval metrics during training is trained wi
 `scripts/train_universal_evaluator.py`. Example launchers are in `configs/`.
 
 ## Generation
-The released text-only model (`mtrans_25k_noframe_r4` / `rtrans_25k_noframe_r4`) is **T5-conditioned**.
+The text-only model configuration (`mtrans_25k_noframe_r4` / `rtrans_25k_noframe_r4`) is **T5-conditioned**; its checkpoints are coming soon.
 The benchmark script reads the conditioning mode from the checkpoint's `opt.txt`; `gen_camera` needs it
 passed explicitly. (These commands are the ones validated in `RELEASE_TEST.md`.)
 ```bash
