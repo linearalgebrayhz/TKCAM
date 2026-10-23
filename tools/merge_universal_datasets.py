@@ -4,7 +4,7 @@ Merge multiple processed camera datasets into one universal evaluator dataset.
 
 The output is directly compatible with train_universal_evaluator.py:
   output_root/
-    new_joint_vecs/*.npy
+    trajectories/*.npy
     texts/*.txt
     untagged_text/*.txt
     metadata/*.json
@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
+
+from tkcam.utils.dataset_layout import TRAJ_DIR, traj_dir
 
 try:
     from tqdm import tqdm
@@ -48,7 +50,7 @@ def write_lines(path: Path, items: List[str]):
 
 def ensure_dirs(output_root: Path):
     output_root.mkdir(parents=True, exist_ok=True)
-    for sub in ("new_joint_vecs", "texts", "untagged_text", "metadata"):
+    for sub in (TRAJ_DIR, "texts", "untagged_text", "metadata"):
         (output_root / sub).mkdir(exist_ok=True)
 
 
@@ -75,7 +77,7 @@ def parse_sources(source_args: List[str]) -> List[Tuple[str, Path]]:
 
 
 def list_scene_ids(source_root: Path) -> List[str]:
-    motion_dir = source_root / "new_joint_vecs"
+    motion_dir = Path(traj_dir(source_root))
     if not motion_dir.exists():
         return []
     return sorted([p.stem for p in motion_dir.glob("*.npy")])
@@ -127,8 +129,8 @@ def main():
     for alias, path in sources:
         if not path.exists():
             raise FileNotFoundError(f"Source not found: {alias}={path}")
-        if not (path / "new_joint_vecs").exists():
-            raise FileNotFoundError(f"Missing new_joint_vecs in source: {alias}={path}")
+        if not Path(traj_dir(path)).exists():
+            raise FileNotFoundError(f"Missing {TRAJ_DIR}/ in source: {alias}={path}")
 
     # Pass 1: gather candidate IDs and detect collisions for auto-prefix mode.
     all_candidates: List[Tuple[str, Path, str]] = []
@@ -176,7 +178,7 @@ def main():
 
     # Pass 2: copy data and build mapping.
     for alias, source_root, sid in tqdm(all_candidates, desc="Merging scenes"):
-        motion_path = source_root / "new_joint_vecs" / f"{sid}.npy"
+        motion_path = Path(traj_dir(source_root)) / f"{sid}.npy"
         text_path = first_existing_text_path(source_root, sid)
         if not motion_path.exists() or not text_path.exists():
             continue
@@ -186,7 +188,7 @@ def main():
             continue
 
         out_id = map_out_id(alias, sid)
-        out_motion = output_root / "new_joint_vecs" / f"{out_id}.npy"
+        out_motion = output_root / TRAJ_DIR / f"{out_id}.npy"
         out_text = output_root / "texts" / f"{out_id}.txt"
         out_untagged = output_root / "untagged_text" / f"{out_id}.txt"
         out_meta = output_root / "metadata" / f"{out_id}.json"
@@ -244,7 +246,7 @@ def main():
 
         # Gather train frames for Mean/Std.
         for sid in out_train:
-            arr = np.load(output_root / "new_joint_vecs" / f"{sid}.npy")
+            arr = np.load(output_root / TRAJ_DIR / f"{sid}.npy")
             all_train_frames.append(arr)
     else:
         out_train = sorted(set(out_train))
@@ -262,7 +264,7 @@ def main():
         if leftovers:
             out_train.extend(sorted(leftovers))
             for sid in leftovers:
-                arr = np.load(output_root / "new_joint_vecs" / f"{sid}.npy")
+                arr = np.load(output_root / TRAJ_DIR / f"{sid}.npy")
                 all_train_frames.append(arr)
 
     write_lines(output_root / "train.txt", out_train)
@@ -272,7 +274,7 @@ def main():
     # Compute Mean/Std from train split frames.
     if not all_train_frames:
         for sid in out_train:
-            all_train_frames.append(np.load(output_root / "new_joint_vecs" / f"{sid}.npy"))
+            all_train_frames.append(np.load(output_root / TRAJ_DIR / f"{sid}.npy"))
     train_concat = np.concatenate(all_train_frames, axis=0)
     mean = np.mean(train_concat, axis=0).astype(np.float32)
     std = np.std(train_concat, axis=0).astype(np.float32)

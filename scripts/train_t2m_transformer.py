@@ -80,6 +80,8 @@ def load_vq_model():
                 model_key = 'vq_model' if 'vq_model' in ckpt else 'net'
                 vq_model.load_state_dict(ckpt[model_key])
                 print(f'Loading VQ Model {opt.vq_name} from {checkpoint_file}')
+                if checkpoint_file != 'net_best_recon.tar':
+                    print(f'[Warning] VQ {opt.vq_name}: no net_best_recon.tar, fell back to {checkpoint_file} (epoch {ckpt.get("ep")})')
                 checkpoint_loaded = True
                 break
         

@@ -72,6 +72,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+from tkcam.utils.dataset_layout import traj_dir
 from scipy.ndimage import gaussian_filter1d
 from PIL import Image
 from torchvision import transforms
@@ -222,6 +223,8 @@ def load_vq_model(vq_opt):
                 key = 'vq_model' if 'vq_model' in ckpt else 'net'
                 vq_model.load_state_dict(ckpt[key])
                 print(f'Loading VQ Model {vq_opt.name} from {cf}')
+                if cf != 'net_best_recon.tar':
+                    print(f'[Warning] VQ {vq_opt.name}: no net_best_recon.tar, fell back to {cf} (epoch {ckpt.get("ep")})')
                 loaded = True
                 break
         if not loaded:
@@ -269,7 +272,7 @@ def load_trans_model(model_opt, opt, which_model, text_cond=None, allow_root_fal
     ckpt = torch.load(ckpt_path, map_location='cpu')
     key = 't2m_transformer' if 't2m_transformer' in ckpt else 'trans'
     missing, unexpected = t2m_transformer.load_state_dict(ckpt[key], strict=False)
-    _allowed = ('clip_model.', 'cond_provider.', 'clip_image_encoder.')
+    _allowed = ('clip_model.', 'cond_provider.t5_encoder.', 'clip_image_encoder.')
     assert len(unexpected) == 0, f'Unexpected keys in MaskTransformer: {unexpected}'
     assert all(any(k.startswith(p) for p in _allowed) for k in missing), \
         f'Missing trainable keys in MaskTransformer: {missing}'
@@ -337,7 +340,7 @@ def load_res_model(res_opt, vq_opt, opt, text_cond=None):
         ckpt = torch.load(pjoin(res_opt.checkpoints_dir, res_opt.dataset_name, res_opt.name,
                                 'model', 'net_best_fid.tar'), map_location=opt.device)
     missing, unexpected = res_transformer.load_state_dict(ckpt['res_transformer'], strict=False)
-    _allowed = ('clip_model.', 'cond_provider.', 'clip_image_encoder.')
+    _allowed = ('clip_model.', 'cond_provider.t5_encoder.', 'clip_image_encoder.')
     assert len(unexpected) == 0, f'Unexpected keys in ResidualTransformer: {unexpected}'
     assert all(any(k.startswith(p) for p in _allowed) for k in missing), \
         f'Missing trainable keys in ResidualTransformer: {missing}'
@@ -860,7 +863,7 @@ if __name__ == '__main__':
     # ── Load samples directly from dataset split ──
     # This ensures every sample has GT data for Path A & B
     conditioning_mode = text_cond_m[0]
-    motion_dir = pjoin(data_root, 'new_joint_vecs')
+    motion_dir = traj_dir(data_root)
     texts_dir = pjoin(data_root, 'texts')
 
     split_file = pjoin(data_root, f'{opt.split}.txt')

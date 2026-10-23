@@ -373,9 +373,11 @@ class BaseTransformerTrainer:
         print('Iters Per Epoch, Training: %04d, Validation: %03d' % (len(train_loader), len(val_loader)))
         logs = defaultdict(def_value, OrderedDict())
 
-        # Initial evaluation
+        # Initial evaluation. CLaTr matching is a cosine (higher is better); the legacy matching
+        # score is a distance.
+        seed_best_matching = -float('inf') if hasattr(eval_wrapper, 'traj_encoder') else 100
         best_fid, best_div, best_top1, best_top2, best_top3, best_matching, writer = \
-            self._run_evaluation(eval_val_loader, epoch, 100, 100, 0, 0, 0, 100,
+            self._run_evaluation(eval_val_loader, epoch, 100, 100, 0, 0, 0, seed_best_matching,
                                  eval_wrapper, plot_eval, save_ckpt=False, save_anim=False)
         best_acc = 0.
         best_loss = 100.

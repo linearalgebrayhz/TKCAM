@@ -7,7 +7,7 @@ Input (GenDoP DataDop):
   - **/*_caption.json               (caption fields)
 
 Output (universal root):
-  - new_joint_vecs/gendop_<group>_<shot>.npy   (T, 9): [rot6d(6), tx, ty, tz]
+  - trajectories/gendop_<group>_<shot>.npy     (T, 9): [rot6d(6), tx, ty, tz]
   - texts/gendop_<group>_<shot>.txt
   - untagged_text/gendop_<group>_<shot>.txt
   - metadata/gendop_<group>_<shot>.json
@@ -27,6 +27,7 @@ except ImportError:
         return iterable
 
 from tkcam.utils.camera_geometry import matrix_to_sixd, validate_rotation, forward_from_sixd
+from tkcam.utils.dataset_layout import TRAJ_DIR
 
 
 def read_lines(path: Path) -> List[str]:
@@ -37,7 +38,7 @@ def read_lines(path: Path) -> List[str]:
 
 
 def ensure_output_dirs(out_root: Path):
-    for sub in ("new_joint_vecs", "texts", "untagged_text", "metadata", "source_splits"):
+    for sub in (TRAJ_DIR, "texts", "untagged_text", "metadata", "source_splits"):
         (out_root / sub).mkdir(parents=True, exist_ok=True)
 
 
@@ -192,7 +193,7 @@ def main():
         stem = tf.stem.replace("_transforms_cleaning", "")
         sid = f"{args.prefix}_{group}_{stem}"
 
-        out_npy = out_root / "new_joint_vecs" / f"{sid}.npy"
+        out_npy = out_root / TRAJ_DIR / f"{sid}.npy"
         if out_npy.exists() and not args.overwrite:
             processed_ids.append(sid)
             continue

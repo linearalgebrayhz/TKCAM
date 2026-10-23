@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 import numpy as np
 from .unified_data_format import detect_dataset_format, CameraDataFormat
 from tkcam.utils import paramUtil
+from tkcam.utils.dataset_layout import traj_dir
 
 class DatasetConfig:
     """Unified dataset configuration"""
@@ -29,7 +30,7 @@ class DatasetConfig:
     
     def _init_defaults(self):
         """Initialize default configuration values"""
-        self.motion_dir = self.data_root / 'new_joint_vecs'
+        self.motion_dir = Path(traj_dir(self.data_root))
         self.text_dir = self.data_root / 'texts'
         self.joints_num = 1 if self._is_camera_dataset() else 22
         self.radius = 240 * 8 if self._is_camera_dataset() else 4

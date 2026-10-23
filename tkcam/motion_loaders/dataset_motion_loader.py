@@ -4,6 +4,7 @@ import numpy as np
 from os.path import join as pjoin
 from torch.utils.data import DataLoader
 from tkcam.utils.get_opt import get_opt
+from tkcam.utils.dataset_layout import traj_dir
 
 def get_dataset_motion_loader(opt_path, batch_size, fname, device, load_frames=False, data_root_override=None):
     """Create evaluation dataloader for motion datasets.
@@ -26,7 +27,7 @@ def get_dataset_motion_loader(opt_path, batch_size, fname, device, load_frames=F
     # Override data_root if provided (e.g., for overfit experiments)
     if data_root_override is not None:
         opt.data_root = data_root_override
-        opt.motion_dir = pjoin(opt.data_root, 'new_joint_vecs')
+        opt.motion_dir = traj_dir(opt.data_root)
         opt.text_dir = pjoin(opt.data_root, 'texts')
 
     # Configurations of T2M dataset and KIT dataset is almost the same

@@ -10,7 +10,6 @@ import time
 import numpy as np
 from collections import OrderedDict, defaultdict
 from tkcam.utils.eval_t2m import evaluation_vqvae
-from tkcam.utils.camera_eval import evaluation_camera_vqvae
 from tkcam.utils.clatr_camera_eval import evaluation_camera_vqvae_clatr
 from tkcam.utils.utils import print_current_loss
 from tkcam.utils.logging_utils import VQLogger, create_loss_dict, aggregate_losses
@@ -310,25 +309,25 @@ class RVQTokenizerTrainer:
         best_top2 = 0
         best_top3 = 0
         best_matching = 100
-        best_recon = float('inf')
-        best_smoothness = float('inf')
-        best_position_error = float('inf')
-        best_orientation_error = float('inf')
+        # Camera datasets: checkpoint selection by masked reconstruction (see
+        # evaluation_camera_vqvae_clatr). The untrained model is evaluated for logging only, so it
+        # does not set the baseline the trained epochs have to beat.
+        camera_best = {'recon': float('inf'), 'fid': float('inf')}
+        if self.opt.is_continue:
+            for key, fname, metric in (('recon', 'net_best_recon.tar', 'recon_l1'), ('fid', 'net_best_fid.tar', 'clatr_fid')):
+                path = pjoin(self.opt.model_dir, fname)
+                if os.path.exists(path):
+                    saved = torch.load(path, map_location='cpu').get('metrics', {})
+                    camera_best[key] = saved.get(metric, camera_best[key])
+            print(f'Resumed camera best metrics: {camera_best}')
+        vis_vel_integration = getattr(self.opt, 'vis_vel_integration', False)
         
         # if self.opt.eval_on:
         is_camera_dataset = any(name in self.opt.dataset_name.lower() for name in ["cam", "estate", "realestate"])
-        use_clatr = is_camera_dataset and hasattr(eval_wrapper, 'traj_encoder')  # CLaTrEvalWrapper
         if is_camera_dataset:
-            eval_fn = evaluation_camera_vqvae_clatr if use_clatr else evaluation_camera_vqvae
-            # Use camera-specific evaluation (now includes FID and other motion metrics)
-            _clatr_extra = dict(vis_vel_integration=True) if use_clatr else {}
-            best_fid, best_div, best_top1, best_top2, best_top3, best_matching, best_recon, best_smoothness, best_position_error, best_orientation_error, writer = eval_fn(
-                self.opt.model_dir, eval_val_loader, self.vq_model, self.logger, epoch, 
-                best_recon=best_recon, best_smoothness=best_smoothness,
-                best_position_error=best_position_error, best_orientation_error=best_orientation_error,
-                best_fid=best_fid, best_div=best_div, best_top1=best_top1,
-                best_top2=best_top2, best_top3=best_top3, best_matching=best_matching,
-                eval_wrapper=eval_wrapper, save=False, **_clatr_extra)
+            evaluation_camera_vqvae_clatr(
+                self.opt.model_dir, eval_val_loader, self.vq_model, self.logger, epoch, dict(camera_best),
+                eval_wrapper=eval_wrapper, save=False, vis_vel_integration=vis_vel_integration)
         else:
             # Use original evaluation for human motion
             best_fid, best_div, best_top1, best_top2, best_top3, best_matching, writer = evaluation_vqvae(
@@ -450,18 +449,10 @@ class RVQTokenizerTrainer:
             #     print('Best Validation Model So Far!~')
             # if self.opt.eval_on:
             is_camera_dataset = any(name in self.opt.dataset_name.lower() for name in ["cam", "estate", "realestate"])
-            use_clatr = is_camera_dataset and hasattr(eval_wrapper, 'traj_encoder')  # CLaTrEvalWrapper
             if is_camera_dataset:
-                eval_fn = evaluation_camera_vqvae_clatr if use_clatr else evaluation_camera_vqvae
-                # Use camera-specific evaluation (now includes FID and other motion metrics)
-                _clatr_extra = dict(vis_vel_integration=True) if use_clatr else {}
-                best_fid, best_div, best_top1, best_top2, best_top3, best_matching, best_recon, best_smoothness, best_position_error, best_orientation_error, writer = eval_fn(
-                    self.opt.model_dir, eval_val_loader, self.vq_model, self.logger, epoch, 
-                    best_recon=best_recon, best_smoothness=best_smoothness,
-                    best_position_error=best_position_error, best_orientation_error=best_orientation_error,
-                    best_fid=best_fid, best_div=best_div, best_top1=best_top1,
-                    best_top2=best_top2, best_top3=best_top3, best_matching=best_matching,
-                    eval_wrapper=eval_wrapper, **_clatr_extra)
+                camera_best, _ = evaluation_camera_vqvae_clatr(
+                    self.opt.model_dir, eval_val_loader, self.vq_model, self.logger, epoch, camera_best,
+                    eval_wrapper=eval_wrapper, save=True, vis_vel_integration=vis_vel_integration)
             else:
                 # Use original evaluation for human motion
                 best_fid, best_div, best_top1, best_top2, best_top3, best_matching, writer = evaluation_vqvae(

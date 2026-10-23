@@ -20,6 +20,8 @@ from typing import List
 
 import numpy as np
 
+from tkcam.utils.dataset_layout import TRAJ_DIR, traj_dir
+
 try:
     from tqdm import tqdm
 except ImportError:
@@ -42,7 +44,7 @@ def write_lines(path: Path, items: List[str]):
 
 def ensure_dirs(root: Path):
     root.mkdir(parents=True, exist_ok=True)
-    for sub in ("new_joint_vecs", "texts", "untagged_text", "metadata"):
+    for sub in (TRAJ_DIR, "texts", "untagged_text", "metadata"):
         (root / sub).mkdir(exist_ok=True)
 
 
@@ -77,7 +79,7 @@ def main():
 
     input_root = Path(args.input_root).expanduser()
     output_root = Path(args.output_root).expanduser()
-    motion_in = input_root / "new_joint_vecs"
+    motion_in = Path(traj_dir(input_root))
     if not motion_in.exists():
         raise FileNotFoundError(f"Missing input motion dir: {motion_in}")
 
@@ -97,7 +99,7 @@ def main():
 
     for npy in tqdm(npy_files, desc="Converting RE10K_eval"):
         sid = npy.stem
-        out_npy = output_root / "new_joint_vecs" / f"{sid}.npy"
+        out_npy = output_root / TRAJ_DIR / f"{sid}.npy"
 
         if out_npy.exists() and not args.overwrite:
             skipped += 1
@@ -166,7 +168,7 @@ def main():
         train_concat = np.concatenate(train_frames, axis=0)
     else:
         # fallback: use all converted frames
-        all_frames = [np.load(p) for p in sorted((output_root / "new_joint_vecs").glob("*.npy"))]
+        all_frames = [np.load(p) for p in sorted((output_root / TRAJ_DIR).glob("*.npy"))]
         train_concat = np.concatenate(all_frames, axis=0)
     np.save(output_root / "Mean.npy", np.mean(train_concat, axis=0).astype(np.float32))
     np.save(output_root / "Std.npy", np.std(train_concat, axis=0).astype(np.float32))

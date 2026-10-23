@@ -18,6 +18,8 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
+from tkcam.utils.dataset_layout import TRAJ_DIR, traj_dir
+
 
 def _copy_if_exists(src: Path, dst: Path) -> None:
     if src.is_dir():
@@ -46,14 +48,14 @@ def _convert_stats(source: Path, output: Path) -> None:
 
 
 def convert_dataset(source: Path, output: Path, overwrite: bool = False) -> None:
-    motion_src = source / "new_joint_vecs"
+    motion_src = Path(traj_dir(source))
     if not motion_src.is_dir():
         raise FileNotFoundError(f"Missing motion directory: {motion_src}")
     if output.exists() and overwrite:
         shutil.rmtree(output)
     output.mkdir(parents=True, exist_ok=True)
 
-    motion_dst = output / "new_joint_vecs"
+    motion_dst = output / TRAJ_DIR
     motion_dst.mkdir(parents=True, exist_ok=True)
 
     for npy_path in tqdm(sorted(motion_src.glob("*.npy")), desc="Converting 12D to 9D"):

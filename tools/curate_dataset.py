@@ -15,7 +15,7 @@ Pipeline:
   Phase 4: Assemble output dataset (copy files, recompute stats, splits).
 
 The script operates on an ALREADY-PROCESSED dataset directory that has:
-    new_joint_vecs/  *.npy   (12-D rotmat features)
+    trajectories/    *.npy   (12-D rotmat features; legacy name: new_joint_vecs/)
     texts/           *.txt   (caption#POS-tagged tokens)
     untagged_text/   *.txt   (plain captions)
     metadata/        *.json  (optional)
@@ -66,6 +66,7 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from tkcam.utils.dataset_layout import TRAJ_DIR, traj_dir
 from tkcam.compute_dataset_statistics import (
     CameraDataFormat,
     classify_motion,
@@ -154,7 +155,7 @@ def load_all_scenes(
     Returns list of dicts with keys:
         scene_id, flags, active_motions, caption, npy_path, num_frames
     """
-    motion_dir = source_dir / "new_joint_vecs"
+    motion_dir = Path(traj_dir(source_dir))
     npy_files = sorted(motion_dir.glob("*.npy"))
     print(f"Found {len(npy_files)} trajectory files")
 
@@ -567,12 +568,12 @@ def assemble_dataset(
 ):
     """Create a self-contained dataset directory from selected scenes.
 
-    Copies:  new_joint_vecs/, texts/, untagged_text/, metadata/
+    Copies:  trajectories/, texts/, untagged_text/, metadata/
     Recomputes: Mean.npy, Std.npy, train.txt, val.txt, test.txt
     Saves: curation_report.json with full provenance.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    for sub in ("new_joint_vecs", "texts", "untagged_text", "metadata"):
+    for sub in (TRAJ_DIR, "texts", "untagged_text", "metadata"):
         (output_dir / sub).mkdir(exist_ok=True)
 
     # Load source mapping
@@ -590,10 +591,10 @@ def assemble_dataset(
         sid = sc["scene_id"]
 
         # NPY (required)
-        npy_src = source_dir / "new_joint_vecs" / f"{sid}.npy"
+        npy_src = Path(traj_dir(source_dir)) / f"{sid}.npy"
         if not npy_src.exists():
             continue
-        shutil.copy2(npy_src, output_dir / "new_joint_vecs" / f"{sid}.npy")
+        shutil.copy2(npy_src, output_dir / TRAJ_DIR / f"{sid}.npy")
         all_trajectories.append(np.load(npy_src))
 
         # Text files
@@ -676,7 +677,7 @@ def main():
     )
     parser.add_argument(
         "--source", required=True,
-        help="Source dataset directory (must have new_joint_vecs/, texts/)",
+        help="Source dataset directory (must have trajectories/ or new_joint_vecs/, texts/)",
     )
     parser.add_argument(
         "--output", "-o", default=None,

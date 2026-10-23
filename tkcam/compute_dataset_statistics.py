@@ -32,6 +32,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 
 from tkcam.utils.camera_geometry import forward_from_sixd, sixd_to_matrix
+from tkcam.utils.dataset_layout import traj_dir
 
 
 # ============================================================================
@@ -250,7 +251,7 @@ class DatasetStatistics:
         # How many multi-label motion combo rows to print (0 = all). JSON always includes full combo tables.
         self.max_combo_display = max_combo_display
 
-        self.motion_dir = dataset_root / "new_joint_vecs"
+        self.motion_dir = Path(traj_dir(dataset_root))
         self.text_dir = dataset_root / text_subdir
 
         self.stats: Dict = {}
@@ -485,7 +486,7 @@ def main():
     )
     parser.add_argument(
         "dataset_root",
-        help="Root directory (contains new_joint_vecs/, texts/, metadata/)",
+        help="Root directory (contains trajectories/, texts/, metadata/)",
     )
     parser.add_argument(
         "--format",
@@ -525,8 +526,8 @@ def main():
     if not dataset_root.exists():
         print(f"Error: {dataset_root} does not exist")
         return 1
-    if not (dataset_root / "new_joint_vecs").is_dir():
-        print(f"Error: {dataset_root / 'new_joint_vecs'} not found")
+    if not Path(traj_dir(dataset_root)).is_dir():
+        print(f"Error: {traj_dir(dataset_root)} not found")
         return 1
 
     # Resolve format

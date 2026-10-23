@@ -4,7 +4,7 @@ Train a universal CLaTr-style contrastive evaluator on mixed camera datasets.
 
 Expected mixed dataset layout (already converted to CLaTr-compatible 9D):
   <data_root>/
-    new_joint_vecs/*.npy     # (T, 9) trajectory
+    trajectories/*.npy       # (T, 9) trajectory (legacy name: new_joint_vecs/)
     texts/*.txt              # caption lines, supports "caption#tokens" format
     train.txt
     val.txt
@@ -30,6 +30,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+from tkcam.utils.dataset_layout import traj_dir
 
 try:
     import clip as clip_module
@@ -66,7 +67,7 @@ class UniversalTrajectoryTextDataset(Dataset):
     ):
         super().__init__()
         self.data_root = Path(data_root)
-        self.motion_dir = self.data_root / "new_joint_vecs"
+        self.motion_dir = Path(traj_dir(self.data_root))
         self.text_dir = self.data_root / "texts"
         self.max_motion_length = max_motion_length
         self.min_motion_length = min_motion_length

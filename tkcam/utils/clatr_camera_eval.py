@@ -14,6 +14,7 @@ These functions compute:
 """
 
 import os
+import random
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -27,7 +28,7 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 – needed for 3-D project
 
 from tkcam.utils.camera_process import calculate_camera_metrics
 from tkcam.utils.unified_data_format import UnifiedCameraData, CameraDataFormat, detect_format_from_dataset_name
-from tkcam.utils.camera_geometry import forward_from_sixd, to_mpl
+from tkcam.utils.camera_geometry import forward_from_sixd, sixd_to_matrix, to_mpl
 from tkcam.models.evaluator.clatr_models import (
     CLaTrEvalWrapper,
     compute_fid,
@@ -681,270 +682,177 @@ def plot_trajectory_comparison_animation_vel_integrated(
     plt.close(fig)
 
 
-#  VQ-VAE Evaluation (replaces evaluation_camera_vqvae for camera datasets)
+#  VQ-VAE Evaluation (camera datasets)
 # ---------------------------------------------------------------------------
+
+def _rotation_geodesic_deg(rot6d_a: np.ndarray, rot6d_b: np.ndarray) -> np.ndarray:
+    """Per-frame angle (degrees) between the rotations encoded by two (T, 6) rot6d arrays."""
+    Ra = sixd_to_matrix(rot6d_a)
+    Rb = sixd_to_matrix(rot6d_b)
+    cos = (np.einsum('tij,tij->t', Ra, Rb) - 1.0) / 2.0
+    return np.degrees(np.arccos(np.clip(cos, -1.0, 1.0)))
+
 
 @torch.no_grad()
 def evaluation_camera_vqvae_clatr(
-    out_dir, val_loader, net, logger, ep,
-    best_recon, best_smoothness,
-    best_position_error, best_orientation_error,
-    eval_wrapper,            # CLaTrEvalWrapper instance
-    best_fid=float("inf"), best_div=float("inf"),
-    best_top1=0, best_top2=0, best_top3=0,
-    best_matching=-float("inf"),
+    out_dir, val_loader, net, logger, ep, best,
+    eval_wrapper=None,       # CLaTrEvalWrapper instance, or None for reconstruction-only eval
     save=True, draw=True,
     vis_vel_integration: bool = False,
+    seed: int = 0,
 ):
     """
-    Evaluate VQ-VAE on camera trajectories using the CLaTr evaluator.
+    Evaluate a camera VQ-VAE on the validation split.
 
-    Drop-in replacement for ``evaluation_camera_vqvae``; keeps the same
-    return signature so all call-sites remain unchanged.
+    Checkpoint selection uses the masked L1 reconstruction error in the VQ's normalized space
+    (the training objective), over the valid frames of every clip. Each clip is encoded at its
+    own length, so the zero padding of the batch never enters the VQ. Real-unit errors (after
+    de-normalizing with the loader's mean/std) and, when ``eval_wrapper`` is a CLaTrEvalWrapper,
+    CLaTr metrics are logged but not used for selection. The current CLaTr checkpoint was trained
+    on data with the old RealEstate10K pose convention, so its numbers are a relative signal only.
 
-    Returns
-    -------
-    (best_fid, best_div, best_top1, best_top2, best_top3, best_matching,
-     best_recon, best_smoothness, best_position_error, best_orientation_error, logger)
+    ``val_loader`` must yield (caption, motion, m_length) batches (see unpack_clatr_val_batch)
+    from a single process: the RNG is re-seeded on entry and restored on exit, so the random
+    caption choice and temporal crop of Text2MotionDataset are identical every epoch.
+
+    ``best`` is a dict {'recon': float, 'fid': float}. With ``save=True`` it is updated and
+    net_best_recon.tar / net_best_fid.tar are written on improvement; with ``save=False``
+    (e.g. the untrained model before training) the metrics are only logged.
+
+    Returns (best, metrics).
     """
-    net.eval()
+    rng_state = (random.getstate(), np.random.get_state(), torch.get_rng_state(),
+                 torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
-    # Format type for metrics (rotmat vs euler) — from dataset if available
+    net.eval()
+    device = next(net.parameters()).device
+    mean = np.asarray(val_loader.dataset.mean)
+    std = np.asarray(val_loader.dataset.std)
     fmt_type = None
     if hasattr(val_loader.dataset, 'opt') and hasattr(val_loader.dataset.opt, 'dataset_name'):
         fmt_type = detect_format_from_dataset_name(val_loader.dataset.opt.dataset_name)
+    use_clatr = isinstance(eval_wrapper, CLaTrEvalWrapper)
 
-    # ── Accumulators ──
-    all_gt_emb = []
-    all_pred_emb = []
-    all_text_emb = []
-
-    total_recon_loss = 0.0
-    total_position_error = 0.0
-    total_orientation_error = 0.0
-    total_smoothness = 0.0
-    total_velocity_error = 0.0
+    all_gt_emb, all_pred_emb, all_text_emb = [], [], []
+    l1_sum, n_values = 0.0, 0
+    pos_err_sum, extent_sum, rot_err_sum, vel_err_sum, n_frames = 0.0, 0.0, 0.0, 0.0, 0
     nb_sample = 0
     plot_count = 0
     max_plots = 5  # comparison plots per epoch
 
     for batch in val_loader:
-        # Detect batch format
-        if isinstance(batch, torch.Tensor):
-            motion = batch.cuda()
-            bs, seq = motion.shape[0], motion.shape[1]
-            m_length = torch.tensor([seq] * bs)
-            captions = None
-        else:
-            word_embeddings, pos_one_hots, caption, sent_len, motion, m_length, token = batch[:7]
-            motion = motion.cuda()
-            bs = motion.shape[0]
-            captions = list(caption) if not isinstance(caption, list) else caption
-
-        # VQ forward
-        pred_motion, loss_commit, perplexity = net(motion)
-
-        # ── CLaTr embeddings ──
-        if captions is not None and isinstance(eval_wrapper, CLaTrEvalWrapper):
-            m_lens_tensor = m_length if isinstance(m_length, torch.Tensor) else torch.tensor(m_length)
-            m_lens_tensor = m_lens_tensor.cuda()
-            gt_emb = eval_wrapper.get_trajectory_embeddings(motion, m_lens_tensor)
-            pred_emb = eval_wrapper.get_trajectory_embeddings(pred_motion, m_lens_tensor)
-            text_emb = eval_wrapper.get_text_embeddings(captions)
-            all_gt_emb.append(gt_emb)
-            all_pred_emb.append(pred_emb)
-            all_text_emb.append(text_emb)
-
-        # ── Camera-specific metrics ──
-        pred_np = pred_motion.detach().cpu().numpy()
-        gt_np = motion.detach().cpu().numpy()
+        motion, m_length, captions = unpack_clatr_val_batch(batch)[:3]
+        motion = motion.to(device).float()
         m_len_list = m_length.tolist() if isinstance(m_length, torch.Tensor) else list(m_length)
+        bs = motion.shape[0]
 
+        # VQ forward, one clip at a time at its valid length
+        pred_motion = torch.zeros_like(motion)
         for i in range(bs):
             ml = int(m_len_list[i])
-            metrics = calculate_camera_metrics(
-                pred_np[i : i + 1, :ml], gt_np[i : i + 1, :ml], format_type=fmt_type
-            )
-            total_position_error += metrics["mean_position_error"]
-            total_orientation_error += metrics["mean_orientation_error"]
-            total_smoothness += metrics["pred_smoothness"]
-            total_velocity_error += metrics["velocity_error"]
+            pred_motion[i, :ml] = net(motion[i:i + 1, :ml])[0][0]
+
+        if use_clatr and captions is not None:
+            m_lens_tensor = torch.as_tensor(m_len_list, device=device)
+            all_gt_emb.append(eval_wrapper.get_trajectory_embeddings(motion, m_lens_tensor))
+            all_pred_emb.append(eval_wrapper.get_trajectory_embeddings(pred_motion, m_lens_tensor))
+            all_text_emb.append(eval_wrapper.get_text_embeddings(captions))
+
+        gt_np = motion.cpu().numpy()
+        pr_np = pred_motion.cpu().numpy()
+        for i in range(bs):
+            ml = int(m_len_list[i])
+            gt_n, pr_n = gt_np[i, :ml], pr_np[i, :ml]
+            l1_sum += float(np.abs(pr_n - gt_n).sum())
+            n_values += gt_n.size
+            gt, pr = gt_n * std + mean, pr_n * std + mean
+            pos_err_sum += float(np.linalg.norm(pr[:, :3] - gt[:, :3], axis=1).sum())
+            extent_sum += float(np.linalg.norm(gt[:, :3] - gt[:1, :3], axis=1).max()) * ml
+            rot_err_sum += float(_rotation_geodesic_deg(gt[:, 6:12], pr[:, 6:12]).sum())
+            vel_err_sum += float(np.linalg.norm(pr[:, 3:6] - gt[:, 3:6], axis=1).sum())
+            n_frames += ml
+        nb_sample += bs
 
         # ── Comparison plots ──
         if draw and captions is not None and plot_count < max_plots:
             plot_dir = pjoin(out_dir, "eval_plots", f"E{ep:04d}_vq")
-            gt_np_plot = motion.detach().cpu().numpy()
-            pr_np_plot = pred_motion.detach().cpu().numpy()
-            m_len_list_plot = m_length.tolist() if isinstance(m_length, torch.Tensor) else list(m_length)
-            # Get mean/std and format_type from dataset for denormalization in plots
-            _mean = getattr(val_loader.dataset, 'mean', None)
-            _std = getattr(val_loader.dataset, 'std', None)
-            _fmt = None
-            if hasattr(val_loader.dataset, 'opt') and hasattr(val_loader.dataset.opt, 'dataset_name'):
-                _fmt = detect_format_from_dataset_name(val_loader.dataset.opt.dataset_name)
             for i in range(min(bs, max_plots - plot_count)):
-                ml = int(m_len_list_plot[i])
+                ml = int(m_len_list[i])
                 cap_str = captions[i] if i < len(captions) else "N/A"
                 plot_trajectory_comparison(
-                    gt_np_plot[i, :ml], pr_np_plot[i, :ml], cap_str,
+                    gt_np[i, :ml], pr_np[i, :ml], cap_str,
                     pjoin(plot_dir, f"cmp_{plot_count:02d}.png"), epoch=ep,
-                    mean=_mean, std=_std, format_type=_fmt,
+                    mean=mean, std=std, format_type=fmt_type,
                 )
                 try:
                     plot_trajectory_comparison_animation(
-                        gt_np_plot[i, :ml], pr_np_plot[i, :ml], cap_str,
+                        gt_np[i, :ml], pr_np[i, :ml], cap_str,
                         pjoin(plot_dir, f"cmp_{plot_count:02d}.mp4"),
                         epoch=ep, fps=20, stride=2,
-                        mean=_mean, std=_std, format_type=_fmt,
+                        mean=mean, std=std, format_type=fmt_type,
                     )
                 except Exception as e:
                     print(f"[Warning] Animation failed for VQ sample {plot_count}: {e}")
                 if vis_vel_integration:
                     try:
                         plot_trajectory_comparison_vel_integrated(
-                            gt_np_plot[i, :ml], pr_np_plot[i, :ml], cap_str,
+                            gt_np[i, :ml], pr_np[i, :ml], cap_str,
                             pjoin(plot_dir, f"cmp_{plot_count:02d}_velint.png"), epoch=ep,
-                            mean=_mean, std=_std, format_type=_fmt,
+                            mean=mean, std=std, format_type=fmt_type,
                         )
                     except Exception as e:
                         print(f"[Warning] Vel-integrated plot failed for VQ sample {plot_count}: {e}")
                 plot_count += 1
 
-        recon_loss = F.l1_loss(pred_motion, motion)
-        total_recon_loss += recon_loss.item() * bs
-        nb_sample += bs
-
-    # ── Aggregate ──
-    avg_recon = total_recon_loss / max(nb_sample, 1)
-    avg_pos_err = total_position_error / max(nb_sample, 1)
-    avg_ori_err = total_orientation_error / max(nb_sample, 1)
-    avg_smooth = total_smoothness / max(nb_sample, 1)
-    avg_vel_err = total_velocity_error / max(nb_sample, 1)
-
+    metrics = {
+        "recon_l1": l1_sum / max(n_values, 1),
+        "pos_err": pos_err_sum / max(n_frames, 1),
+        "pos_err_rel": pos_err_sum / max(extent_sum, 1e-12),
+        "rot_err_deg": rot_err_sum / max(n_frames, 1),
+        "vel_err": vel_err_sum / max(n_frames, 1),
+        "num_clips": nb_sample,
+    }
     if all_gt_emb:
         gt_emb_all = np.concatenate(all_gt_emb, axis=0)
         pred_emb_all = np.concatenate(all_pred_emb, axis=0)
         text_emb_all = np.concatenate(all_text_emb, axis=0)
+        r_prec = np.mean([compute_r_precision(text_emb_all, pred_emb_all, top_k=3, seed=s) for s in range(3)], axis=0)
+        metrics.update({
+            "clatr_fid": float(compute_fid(gt_emb_all, pred_emb_all)),
+            "clatr_top1": float(r_prec[0]), "clatr_top2": float(r_prec[1]), "clatr_top3": float(r_prec[2]),
+            "clatr_matching": float(compute_matching_score(text_emb_all, pred_emb_all)),
+            "clatr_diversity": float(np.mean([compute_diversity(pred_emb_all, seed=s) for s in range(3)])),
+        })
 
-        fid = compute_fid(gt_emb_all, pred_emb_all)
-
-        r_prec_runs = []
-        div_runs = []
-        gt_div_runs = []
-        for run_i in range(3):
-            r_prec_runs.append(compute_r_precision(
-                text_emb_all, pred_emb_all, top_k=3, seed=run_i))
-            div_runs.append(compute_diversity(pred_emb_all, seed=run_i))
-            gt_div_runs.append(compute_diversity(gt_emb_all, seed=run_i))
-
-        r_prec = np.mean(r_prec_runs, axis=0)
-        match_score = compute_matching_score(text_emb_all, pred_emb_all)
-        diversity = float(np.mean(div_runs))
-        gt_diversity = float(np.mean(gt_div_runs))
-    else:
-        fid = float("inf")
-        r_prec = np.zeros(3)
-        match_score = 0.0
-        diversity = 0.0
-        gt_diversity = 0.0
-
-    # ── Print ──
-    msg = (
-        f"--> CLaTr Eva. Ep {ep}: FID={fid:.4f}, Div={diversity:.4f}, "
-        f"R-Prec=({r_prec[0]:.4f}, {r_prec[1]:.4f}, {r_prec[2]:.4f}), "
-        f"Match={match_score:.4f}, Recon={avg_recon:.4f}, "
-        f"PosErr={avg_pos_err:.4f}, OriErr={avg_ori_err:.4f}, "
-        f"Smooth={avg_smooth:.4f}, VelErr={avg_vel_err:.4f}"
-    )
-    print(msg)
-
-    # ── Log ──
+    print(f"--> VQ Eva. Ep {ep} ({nb_sample} clips): " + ", ".join(
+        f"{k}={v:.5f}" for k, v in metrics.items() if k != "num_clips"))
     if draw:
-        logger.add_scalar("./Test/CLaTr_FID", fid, ep)
-        logger.add_scalar("./Test/CLaTr_Diversity", diversity, ep)
-        logger.add_scalar("./Test/CLaTr_top1", r_prec[0], ep)
-        logger.add_scalar("./Test/CLaTr_top2", r_prec[1], ep)
-        logger.add_scalar("./Test/CLaTr_top3", r_prec[2], ep)
-        logger.add_scalar("./Test/CLaTr_MatchingScore", match_score, ep)
-        logger.add_scalar("./Test/Reconstruction_Loss", avg_recon, ep)
-        logger.add_scalar("./Test/Position_Error", avg_pos_err, ep)
-        logger.add_scalar("./Test/Orientation_Error", avg_ori_err, ep)
-        logger.add_scalar("./Test/Smoothness", avg_smooth, ep)
-        logger.add_scalar("./Test/Velocity_Error", avg_vel_err, ep)
+        for k, v in metrics.items():
+            if k != "num_clips":
+                logger.add_scalar(f"./Test/{k}", v, ep)
 
-    # ── Save best ──
-    if fid < best_fid:
-        print(f"--> --> CLaTr FID Improved from {best_fid:.5f} to {fid:.5f} !!!")
-        best_fid = fid
-        if save:
-            torch.save(
-                {"vq_model": net.state_dict(), "ep": ep},
-                os.path.join(out_dir, "net_best_fid.tar"),
-            )
-
-    if abs(gt_diversity - diversity) < abs(gt_diversity - best_div):
-        print(f"--> --> Diversity Improved from {best_div:.5f} to {diversity:.5f} !!!")
-        best_div = diversity
-
-    if r_prec[0] > best_top1:
-        print(f"--> --> Top1 Improved from {best_top1:.5f} to {r_prec[0]:.5f} !!!")
-        best_top1 = r_prec[0]
-    if r_prec[1] > best_top2:
-        best_top2 = r_prec[1]
-    if r_prec[2] > best_top3:
-        best_top3 = r_prec[2]
-
-    if match_score > best_matching:
-        print(f"--> --> Matching Score Improved from {best_matching:.5f} to {match_score:.5f} !!!")
-        best_matching = match_score
-        if save:
-            torch.save(
-                {"vq_model": net.state_dict(), "ep": ep},
-                os.path.join(out_dir, "net_best_matching.tar"),
-            )
-
-    if avg_recon < best_recon:
-        print(f"--> --> Recon Improved from {best_recon:.5f} to {avg_recon:.5f} !!!")
-        best_recon = avg_recon
-        if save:
-            torch.save(
-                {"vq_model": net.state_dict(), "ep": ep},
-                os.path.join(out_dir, "net_best_recon.tar"),
-            )
-
-    if avg_pos_err < best_position_error:
-        print(f"--> --> Position Error Improved from {best_position_error:.5f} to {avg_pos_err:.5f} !!!")
-        best_position_error = avg_pos_err
-        if save:
-            torch.save(
-                {"vq_model": net.state_dict(), "ep": ep},
-                os.path.join(out_dir, "net_best_position.tar"),
-            )
-
-    if avg_ori_err < best_orientation_error:
-        print(f"--> --> Orientation Error Improved from {best_orientation_error:.5f} to {avg_ori_err:.5f} !!!")
-        best_orientation_error = avg_ori_err
-        if save:
-            torch.save(
-                {"vq_model": net.state_dict(), "ep": ep},
-                os.path.join(out_dir, "net_best_orientation.tar"),
-            )
-
-    if avg_smooth < best_smoothness:
-        print(f"--> --> Smoothness Improved from {best_smoothness:.5f} to {avg_smooth:.5f} !!!")
-        best_smoothness = avg_smooth
-        if save:
-            torch.save(
-                {"vq_model": net.state_dict(), "ep": ep},
-                os.path.join(out_dir, "net_best_smoothness.tar"),
-            )
+    if save:
+        if metrics["recon_l1"] < best["recon"]:
+            print(f"--> --> Recon L1 Improved from {best['recon']:.5f} to {metrics['recon_l1']:.5f} !!!")
+            best["recon"] = metrics["recon_l1"]
+            torch.save({"vq_model": net.state_dict(), "ep": ep, "metrics": metrics},
+                       os.path.join(out_dir, "net_best_recon.tar"))
+        if "clatr_fid" in metrics and metrics["clatr_fid"] < best["fid"]:
+            print(f"--> --> CLaTr FID Improved from {best['fid']:.5f} to {metrics['clatr_fid']:.5f} !!!")
+            best["fid"] = metrics["clatr_fid"]
+            torch.save({"vq_model": net.state_dict(), "ep": ep, "metrics": metrics},
+                       os.path.join(out_dir, "net_best_fid.tar"))
 
     net.train()
-    return (
-        best_fid, best_div, best_top1, best_top2, best_top3, best_matching,
-        best_recon, best_smoothness, best_position_error, best_orientation_error,
-        logger,
-    )
+    random.setstate(rng_state[0])
+    np.random.set_state(rng_state[1])
+    torch.set_rng_state(rng_state[2])
+    if rng_state[3] is not None:
+        torch.cuda.set_rng_state_all(rng_state[3])
+    return best, metrics
 
 
 # ---------------------------------------------------------------------------

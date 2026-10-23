@@ -10,12 +10,13 @@ import argparse
 from pathlib import Path
 from tqdm import tqdm
 from os.path import join as pjoin
+from tkcam.utils.dataset_layout import traj_dir
 
-def compute_dataset_stats(data_root, motion_dir_name='new_joint_vecs', train_split='train.txt'):
+def compute_dataset_stats(data_root, motion_dir_name=None, train_split='train.txt'):
     """
     Compute mean and std statistics for a dataset
     """
-    motion_dir = pjoin(data_root, motion_dir_name)
+    motion_dir = pjoin(data_root, motion_dir_name) if motion_dir_name else traj_dir(data_root)
     split_file = pjoin(data_root, train_split)
     
     print(f"Computing statistics from: {motion_dir}")
@@ -140,8 +141,8 @@ def main():
                        help='Output directory (default: ./checkpoints/{dataset_name}/Comp_v6_KLD005)')
     parser.add_argument('--experiment_name', type=str, default='Comp_v6_KLD005',
                        help='Experiment name for the metadata')
-    parser.add_argument('--motion_dir_name', type=str, default='new_joint_vecs',
-                       help='Name of motion directory within data_root')
+    parser.add_argument('--motion_dir_name', type=str, default=None,
+                       help='Name of trajectory directory within data_root (default: trajectories/, or legacy new_joint_vecs/)')
     parser.add_argument('--train_split', type=str, default='train.txt',
                        help='Training split file name')
     

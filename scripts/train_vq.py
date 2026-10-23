@@ -7,7 +7,7 @@ from torch.utils.data.dataloader import DataLoader
 from tkcam.models.vq.model import RVQVAE
 from tkcam.models.vq.vq_trainer import RVQTokenizerTrainer
 from tkcam.options.vq_option import arg_parse
-from tkcam.data.t2m_dataset import MotionDataset, collate_fn_camera
+from tkcam.data.t2m_dataset import MotionDataset, Text2MotionDataset, collate_fn_camera, collate_fn_text2motion_camera_train
 from tkcam.utils import paramUtil
 import numpy as np
 
@@ -167,33 +167,28 @@ if __name__ == "__main__":
     if not os.path.exists(opt.motion_dir):
         raise FileNotFoundError(f"Motion directory does not exist: {opt.motion_dir}")
 
-    wrapper_opt = get_opt(dataset_opt_path, torch.device('cuda'))
-    wrapper_opt.eval_on = opt.eval_on
-
-    # Use CLaTr evaluator if checkpoint provided, otherwise fall back to legacy
+    # Camera datasets are evaluated with the CLaTr evaluator (optional) and reconstruction metrics;
+    # the legacy MoMask text-motion evaluator (Comp_v6_KLD005) is only used for human motion.
     evaluator_ckpt = getattr(opt, 'evaluator_ckpt', None)
     is_camera_dataset = any(name in opt.dataset_name.lower() for name in ["cam", "estate", "realestate"])
-    if evaluator_ckpt and is_camera_dataset:
-        eval_wrapper = CLaTrEvalWrapper(
-            ckpt_path=evaluator_ckpt,
-            device=opt.device,
-            input_dim=dim_pose,
-        )
-        print(f"[CLaTr] Using CLaTr evaluator from {evaluator_ckpt}")
+    if is_camera_dataset:
+        if evaluator_ckpt:
+            eval_wrapper = CLaTrEvalWrapper(
+                ckpt_path=evaluator_ckpt,
+                device=opt.device,
+                input_dim=dim_pose,
+            )
+            print(f"[CLaTr] Using CLaTr evaluator from {evaluator_ckpt}")
+        else:
+            eval_wrapper = None
+            print("[eval] No --evaluator_ckpt: VQ evaluation uses reconstruction metrics only.")
     else:
+        wrapper_opt = get_opt(dataset_opt_path, torch.device('cuda'))
+        wrapper_opt.eval_on = opt.eval_on
         eval_wrapper = EvaluatorModelWrapper(wrapper_opt)
-        if is_camera_dataset and not evaluator_ckpt:
-            print("[Warning] No --evaluator_ckpt provided for camera dataset. "
-                  "Using legacy evaluator (metrics may be unreliable). "
-                  "Run train_evaluator.py first to get a CLaTr checkpoint.")
 
     mean = np.load(pjoin(opt.data_root, 'Mean.npy'), allow_pickle=False)
     std = np.load(pjoin(opt.data_root, 'Std.npy'), allow_pickle=False)
-
-    # Register pipeline normalization stats with CLaTr evaluator
-    if evaluator_ckpt and is_camera_dataset and hasattr(eval_wrapper, 'set_pipeline_stats'):
-        eval_wrapper.set_pipeline_stats(
-            torch.from_numpy(mean), torch.from_numpy(std), dataset_name=opt.dataset_name)
 
     train_split_file = pjoin(opt.data_root, 'train.txt')
     val_split_file = pjoin(opt.data_root, 'val.txt')
@@ -238,17 +233,22 @@ if __name__ == "__main__":
         val_loader = DataLoader(val_dataset, batch_size=opt.batch_size, drop_last=True, num_workers=4,
                                 shuffle=True, pin_memory=True)
     
-    # Eval loader uses meta from dataset_opt_path (e.g. Comp_v6_KLD005/meta). Ensure that meta
-    # has format-specific mean.npy, std.npy matching the dataset (e.g. copy from dataset or from
-    # a VQ run's meta once). The evaluator is trained on the dataset, so mean/std must match.
-    if opt.eval_on:
+    if is_camera_dataset:
+        # Full val clips (caption, motion, m_length), normalized exactly like the VQ's training data
+        # (train_dataset.mean/std: rot6d left unnormalized). One worker, so the seeded caption
+        # choice / crop in evaluation_camera_vqvae_clatr is reproducible across epochs.
+        if not hasattr(opt, 'unit_length'):
+            opt.unit_length = 2 ** opt.down_t
+        eval_val_dataset = Text2MotionDataset(opt, train_dataset.mean, train_dataset.std, val_split_file)
+        eval_val_loader = DataLoader(eval_val_dataset, batch_size=32, num_workers=0, shuffle=False,
+                                     drop_last=False, collate_fn=collate_fn_text2motion_camera_train)
+        if eval_wrapper is not None:
+            eval_wrapper.set_pipeline_stats(
+                torch.from_numpy(train_dataset.mean), torch.from_numpy(train_dataset.std),
+                dataset_name=opt.dataset_name)
+    else:
         eval_val_loader, _ = get_dataset_motion_loader(dataset_opt_path, 32, 'val', device=opt.device,
                                                        data_root_override=opt.data_root)
-    else:
-        eval_val_loader = None
-
-    eval_val_loader, _ = get_dataset_motion_loader(dataset_opt_path, 32, 'val', device=opt.device,
-                                                   data_root_override=opt.data_root)
     trainer.train(train_loader, val_loader, eval_val_loader, eval_wrapper, plot_t2m)
 
 ## train_vq.py --dataset_name kit --batch_size 512 --name VQVAE_dp2 --gpu_id 3

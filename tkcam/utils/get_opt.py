@@ -3,6 +3,7 @@ from argparse import Namespace
 import re
 from os.path import join as pjoin
 from tkcam.utils.word_vectorizer import POS_enumerator
+from tkcam.utils.dataset_layout import traj_dir
 
 
 def is_float(numStr):
@@ -78,7 +79,7 @@ def get_opt(opt_path, device, **kwargs):
     if not hasattr(opt, 'data_root') or not opt.data_root:
         opt.data_root = defaults['data_root']
 
-    opt.motion_dir = pjoin(opt.data_root, 'new_joint_vecs')
+    opt.motion_dir = traj_dir(opt.data_root)
     opt.text_dir = pjoin(opt.data_root, 'texts')
     opt.joints_num = defaults['joints_num']
     opt.dim_pose = defaults['dim_pose']

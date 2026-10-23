@@ -9,7 +9,7 @@ Input (ET):
       clatr_train_split.txt / clatr_val_split.txt / clatr_test_split.txt
 
 Output (universal root):
-  - new_joint_vecs/et_<scene>.npy   (T, 9): [rot6d(6), tx, ty, tz]
+  - trajectories/et_<scene>.npy     (T, 9): [rot6d(6), tx, ty, tz]
   - texts/et_<scene>.txt
   - untagged_text/et_<scene>.txt
   - metadata/et_<scene>.json
@@ -29,6 +29,7 @@ except ImportError:
         return iterable
 
 from tkcam.utils.camera_geometry import matrix_to_sixd, validate_rotation, forward_from_sixd
+from tkcam.utils.dataset_layout import TRAJ_DIR
 
 
 def read_lines(path: Path) -> List[str]:
@@ -97,7 +98,7 @@ def load_et_split_stems(et_root: Path) -> Dict[str, List[str]]:
 
 
 def ensure_output_dirs(out_root: Path):
-    for sub in ("new_joint_vecs", "texts", "untagged_text", "metadata", "source_splits"):
+    for sub in (TRAJ_DIR, "texts", "untagged_text", "metadata", "source_splits"):
         (out_root / sub).mkdir(parents=True, exist_ok=True)
 
 
@@ -227,7 +228,7 @@ def main():
             continue
 
         sid = f"{args.prefix}_{stem}"
-        out_npy = out_root / "new_joint_vecs" / f"{sid}.npy"
+        out_npy = out_root / TRAJ_DIR / f"{sid}.npy"
         if out_npy.exists() and not args.overwrite:
             # Still register split for bookkeeping.
             if stem in train_set:

@@ -468,6 +468,26 @@ class BaseCondTransformer(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
+    # Pretrained, frozen encoders created in __init__ (T5 text, CLIP vision). Weight init and
+    # train() must leave them alone. (CLIP text, `clip_model`, is loaded after init.)
+    PRETRAINED_ENCODERS = ('cond_provider.t5_encoder', 'clip_image_encoder')
+
+    def _pretrained_encoders(self):
+        return [m for name, m in self.named_modules() if name in self.PRETRAINED_ENCODERS]
+
+    def _init_trainable_weights(self):
+        """Apply _init_weights to every module except the pretrained encoders."""
+        frozen = {id(sub) for enc in self._pretrained_encoders() for sub in enc.modules()}
+        for module in self.modules():
+            if id(module) not in frozen:
+                self._init_weights(module)
+
+    def train(self, mode=True):
+        super().train(mode)
+        for enc in self._pretrained_encoders():
+            enc.eval()  # frozen: keeps T5 dropout off during training
+        return self
+
     def _prepare_crossattn_cond(
         self,
         cond: torch.Tensor,
@@ -695,7 +715,7 @@ class MaskTransformer(BaseCondTransformer):
         self.output_process = OutputProcess_Bert(out_feats=opt.num_tokens, latent_dim=latent_dim)
         self.token_emb = nn.Embedding(_num_tokens, self.code_dim)
 
-        self.apply(self._init_weights)
+        self._init_trainable_weights()
         self._init_clip(clip_version)
 
         self.noise_schedule = cosine_schedule
@@ -1186,7 +1206,7 @@ class ResidualTransformer(BaseCondTransformer):
         self.shared_codebook = shared_codebook
         self.share_weight = share_weight
 
-        self.apply(self._init_weights)
+        self._init_trainable_weights()
         self._init_clip(clip_version)
 
     def q_schedule(self, bs, low, high):

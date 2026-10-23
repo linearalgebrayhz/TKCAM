@@ -6,7 +6,7 @@ Generates debug MP4s showing 4-panel view (3D trajectory, velocity plot,
 top-down view, statistics + text caption) for random or specified scenes.
 
 Works directly with the CCD output directory structure:
-    new_joint_vecs/     *.npy  (12-D rotmat features)
+    trajectories/       *.npy  (12-D rotmat features)
     texts/              *.txt  (caption#POS-tagged tokens)
     untagged_text/      *.txt  (plain captions, fallback)
     train.txt / val.txt / test.txt
@@ -43,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from tkcam.gen_camera import plot_camera_trajectory_debug, plot_camera_trajectory_animation
 from tkcam.utils.unified_data_format import CameraDataFormat
+from tkcam.utils.dataset_layout import traj_dir
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +205,7 @@ def main():
     # --- Filter to those with .npy files ---
     valid = []
     for sid in scene_ids:
-        npy = os.path.join(dataset_dir, "new_joint_vecs", f"{sid}.npy")
+        npy = os.path.join(traj_dir(dataset_dir), f"{sid}.npy")
         if os.path.exists(npy):
             valid.append((sid, npy))
         else:

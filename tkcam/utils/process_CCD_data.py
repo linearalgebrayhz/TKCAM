@@ -47,6 +47,7 @@ from tqdm import tqdm
 
 # Add current directory to path to import utils
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from tkcam.utils.dataset_layout import TRAJ_DIR
 from tkcam.utils.camera_geometry import (
     build_12d_features,
     relativize_trajectory,
@@ -613,7 +614,7 @@ def process_data(
               f"(≤{max_frames / fps:.1f}s at {fps}fps)")
 
     # Create output directories
-    motion_dir = os.path.join(output_dir, 'new_joint_vecs')
+    motion_dir = os.path.join(output_dir, TRAJ_DIR)
     untagged_dir = os.path.join(output_dir, 'untagged_text')
     tagged_dir = os.path.join(output_dir, 'texts')
     os.makedirs(motion_dir, exist_ok=True)

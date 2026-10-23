@@ -17,6 +17,8 @@ import torch
 from typing import Union, Tuple, Dict, Optional
 from enum import Enum
 
+from tkcam.utils.dataset_layout import TRAJ_DIR, traj_dir
+
 class CameraDataFormat(Enum):
     """Enumeration of supported camera data formats"""
     LEGACY_5 = 5  # [x, y, z, pitch, yaw]
@@ -342,7 +344,7 @@ def detect_dataset_format(data_root: str, sample_file: str = None) -> CameraData
     """
     from pathlib import Path
     
-    motion_dir = Path(data_root) / "new_joint_vecs"
+    motion_dir = Path(traj_dir(data_root))
     if not motion_dir.exists():
         raise FileNotFoundError(f"Motion directory not found: {motion_dir}")
     
@@ -415,7 +417,7 @@ def batch_convert_dataset(input_dir: str, output_dir: str,
     output_path = Path(output_dir)
     
     # Create output directory structure
-    output_motion_dir = output_path / "new_joint_vecs"
+    output_motion_dir = output_path / TRAJ_DIR
     output_motion_dir.mkdir(parents=True, exist_ok=True)
     
     # Copy text directory if it exists
@@ -427,7 +429,7 @@ def batch_convert_dataset(input_dir: str, output_dir: str,
         shutil.copytree(input_text_dir, output_text_dir)
     
     # Convert motion files
-    input_motion_dir = input_path / "new_joint_vecs"
+    input_motion_dir = Path(traj_dir(input_path))
     npy_files = list(input_motion_dir.glob("*.npy"))
     
     print(f"Converting {len(npy_files)} files from {source_format.name} to {target_format.name}")

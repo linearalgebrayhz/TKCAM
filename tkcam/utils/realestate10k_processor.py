@@ -37,6 +37,7 @@ from .camera_geometry import (
     ensure_twc,
     validate_rotation,
 )
+from .dataset_layout import TRAJ_DIR
 from .unified_data_format import CameraDataFormat, UnifiedCameraData
 
 
@@ -833,7 +834,7 @@ class RealEstate10KProcessor:
             self.scene_id_mapping = {}
 
         # --- Create output dirs ---
-        for subdir in ("new_joint_vecs", "untagged_text", "metadata"):
+        for subdir in (TRAJ_DIR, "untagged_text", "metadata"):
             (output_path / subdir).mkdir(exist_ok=True)
 
         stats = {"processed": 0, "failed": 0, "skipped": 0}
@@ -887,7 +888,7 @@ class RealEstate10KProcessor:
                 unified = UnifiedCameraData(traj, CameraDataFormat.FULL_12_ROTMAT)
                 final = unified.to_format(self.target_format)
                 np.save(
-                    output_path / "new_joint_vecs" / f"{nid}.npy",
+                    output_path / TRAJ_DIR / f"{nid}.npy",
                     final.get_momask_compatible_data().numpy(),
                 )
 
@@ -1032,7 +1033,7 @@ class RealEstate10KProcessor:
         self, output_path: Path, scene_ids: List[str]
     ):
         """Calculate and save dataset mean/std statistics."""
-        mdir = output_path / "new_joint_vecs"
+        mdir = output_path / TRAJ_DIR
         all_data = [
             np.load(mdir / f"{sid}.npy")
             for sid in scene_ids

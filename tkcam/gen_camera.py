@@ -13,6 +13,7 @@ from tkcam.models.vq.model import RVQVAE
 
 from tkcam.options.eval_option import EvalT2MOptions
 from tkcam.utils.get_opt import get_opt
+from tkcam.utils.dataset_layout import traj_dir
 
 from tkcam.utils.fixseed import fixseed
 from tkcam.utils.unified_data_format import UnifiedCameraData, CameraDataFormat
@@ -81,6 +82,8 @@ def load_vq_model(vq_opt):
                 model_key = 'vq_model' if 'vq_model' in ckpt else 'net'
                 vq_model.load_state_dict(ckpt[model_key])
                 print(f'Loading VQ Model {vq_opt.name} from {checkpoint_file} Completed!')
+                if checkpoint_file != 'net_best_recon.tar':
+                    print(f'[Warning] VQ {vq_opt.name}: no net_best_recon.tar, fell back to {checkpoint_file} (epoch {ckpt.get("ep")})')
                 checkpoint_loaded = True
                 break
         
@@ -131,7 +134,7 @@ def load_trans_model(model_opt, opt, which_model, text_cond=None):
     model_key = 't2m_transformer' if 't2m_transformer' in ckpt else 'trans'
     missing_keys, unexpected_keys = t2m_transformer.load_state_dict(ckpt[model_key], strict=False)
     assert len(unexpected_keys) == 0, f'Unexpected keys in MaskTransformer: {unexpected_keys}'
-    allowed = ('clip_model.', 'cond_provider.', 'clip_image_encoder.')
+    allowed = ('clip_model.', 'cond_provider.t5_encoder.', 'clip_image_encoder.')
     assert all(any(k.startswith(p) for p in allowed) for k in missing_keys), \
         f'Missing trainable keys in MaskTransformer: {missing_keys}'
     print(f'Loading Transformer {opt.name} from epoch {ckpt["ep"]}!')
@@ -211,7 +214,7 @@ def load_res_model(res_opt, vq_opt, opt, text_cond=None):
                           map_location=opt.device)
     missing_keys, unexpected_keys = res_transformer.load_state_dict(ckpt['res_transformer'], strict=False)
     assert len(unexpected_keys) == 0, f'Unexpected keys in ResidualTransformer: {unexpected_keys}'
-    allowed = ('clip_model.', 'cond_provider.', 'clip_image_encoder.')
+    allowed = ('clip_model.', 'cond_provider.t5_encoder.', 'clip_image_encoder.')
     assert all(any(k.startswith(p) for p in allowed) for k in missing_keys), \
         f'Missing trainable keys in ResidualTransformer: {missing_keys}'
     print(f'Loading Residual Transformer {res_opt.name} from epoch {ckpt["ep"]}!')
@@ -1530,7 +1533,7 @@ if __name__ == '__main__':
             with open(train_split_file, 'r') as f:
                 all_sample_names = [line.strip() for line in f.readlines()]
             
-            motion_dir = pjoin(opt.data_root, 'new_joint_vecs')
+            motion_dir = traj_dir(opt.data_root)
             texts_dir = pjoin(opt.data_root, 'texts')
             for sid in sample_id_list:
                 if sid < len(all_sample_names):
