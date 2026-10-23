@@ -1,6 +1,15 @@
+<div align="center">
+
 # TKCAM: Text and Keyframe to Camera Trajectory Generation
 
 **NeurIPS 2026** · [Paper (arXiv:2610.11105)](https://arxiv.org/abs/2610.11105) · [Project page](https://linearalgebrayhz.github.io/projects/TKCAM/)
+
+<a href="https://arxiv.org/abs/2610.11105"><img src="https://img.shields.io/badge/arXiv-2610.11105-b31b1b.svg?logo=arxiv" alt="arXiv"></a>
+<a href="https://linearalgebrayhz.github.io/projects/TKCAM/"><img src="https://img.shields.io/badge/Project%20Page-TKCAM-blue.svg?logo=googlechrome&logoColor=white" alt="Project Page"></a>
+<a href="#"><img src="https://img.shields.io/badge/Dataset-coming%20soon-yellow.svg?logo=huggingface" alt="Dataset"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License"></a>
+
+</div>
 
 TKCAM generates **camera trajectories** (rotation + translation over time) from text, optionally
 conditioned on a first frame or sparse keyframes. It adapts the MoMask residual masked-transformer recipe
@@ -10,31 +19,58 @@ language–trajectory model (CLaTr).
 Pipeline: **RVQ-VAE** tokenizes trajectories → **masked transformer** predicts base tokens from text
 (+ optional visual conditioning) → **residual transformer** refines the remaining quantizer levels.
 
-## Install
-Requires an NVIDIA driver compatible with CUDA 12.x wheels. `requirements.txt` pins the PyTorch
-cu128 extra index and installs torch 2.8 + CLIP/T5 + all deps, so conda only provides Python.
-(Transformers ≥4.5x needs torch ≥2.x for the T5 text-conditioning backend.)
+## News & release plan
+- [x] Training, inference and evaluation code
+- [x] Paper on [arXiv](https://arxiv.org/abs/2610.11105)
+- [x] [Project page](https://linearalgebrayhz.github.io/projects/TKCAM/)
+- [ ] Dataset (mixed RealEstate10K + E.T. + DataDoP captions/trajectories) and benchmark split — *coming soon*
+- [ ] Pretrained checkpoints — *coming soon*
+
+## Installation
+Tested on Linux with Python 3.9, PyTorch 2.8 (CUDA 12.8 wheels) and an NVIDIA A100. Requires an NVIDIA
+driver compatible with CUDA 12.x. `requirements.txt` pins the PyTorch cu128 extra index and installs
+torch 2.8 + CLIP/T5 + all other dependencies, so conda only provides Python (and `ffmpeg`).
 ```bash
+git clone https://github.com/linearalgebrayhz/TKCAM.git
+cd TKCAM
+
 # Option A — conda (creates an env named "tkcam")
 conda env create -f environment.yml
 conda activate tkcam
 pip install -e .                          # makes the `tkcam` package importable
 
 # Option B — pip only (any fresh Python 3.9 env)
-pip install -r requirements.txt           # torch 1.12 (cu113), CLIP, and all deps
+pip install -r requirements.txt           # torch 2.8 (cu128), CLIP, T5, and all deps
 pip install -e .
-
-# Optional: CLaTr evaluator extras (only for eval_benchmark_clatr / training metrics)
-pip install -r requirements_clatr.txt     # note: pytorch-lightning==1.7.7 (not 2.x)
+# MP4 animations need an `ffmpeg` binary on PATH (e.g. `sudo apt install ffmpeg`)
 ```
+Notes:
+- The T5 text encoder (`t5-base`) and CLIP weights are downloaded automatically on first use (needs
+  internet access, or a pre-populated HuggingFace / CLIP cache).
+- The CLaTr evaluator used for metrics is re-implemented in `tkcam/models/evaluator/` and needs no extra
+  packages beyond `requirements.txt`.
 
-### Pretrained checkpoints
-Checkpoints/data are not shipped (gitignored). Place (or symlink) trained runs under `checkpoints/`
-following `checkpoints/{dataset_name}/{run_name}/`; inference auto-reads the VQ name and normalization
-stats from each run's `opt.txt`. Example:
+### Data and checkpoints
+Datasets and checkpoints are not shipped in this repo (they are gitignored) — the dataset and
+pretrained checkpoints will be released soon (see links above). All scripts resolve paths **relative to
+the repository root** by default, so the easiest setup is to place or symlink your storage there:
+```
+TKCAM/
+  checkpoints/   -> trained runs: checkpoints/{dataset_name}/{run_name}/  (+ checkpoints/evaluator/ for CLaTr)
+  dataset/       -> processed training datasets, e.g. dataset/RealEstate10K_rotmat_25k/
+  data/          -> raw sources: data/real-state-10k/, data/ET/et-data/, data/GenDop/DataDop/,
+                    data/processed_estate/train_frames/ (RGB frames for visual conditioning)
+  Benchmark_hub/ -> benchmark: test.json, reference/, result_<model>/
+```
 ```bash
 ln -s /path/to/TKCAM_checkpoints checkpoints
+ln -s /path/to/datasets          dataset
+ln -s /path/to/raw_data          data
+ln -s /path/to/Benchmark_hub     Benchmark_hub
 ```
+Every default can also be overridden on the command line (e.g. `--data_root`, `--frame_dir`,
+`--checkpoints-dir`, `--benchmark-root`, `--evaluator-ckpt`). Inference auto-reads the VQ name and
+normalization stats from each run's `opt.txt`.
 
 ## Repository layout
 ```
@@ -49,8 +85,8 @@ configs/      example shell launchers for the 3 training stages
 legacy/       MoMask-style VQ/transformer eval kept for reference (not part of the pipeline)
 docs/         data format & conventions
 ```
-Large artifacts are **not** shipped and are gitignored: `checkpoints/`, `dataset/`, `log/`,
-`generation/`. Point these at your storage (e.g. symlinks) before training/inference.
+Large artifacts are **not** shipped and are gitignored: `checkpoints/`, `dataset/`, `data/`, `log/`,
+`generation/`, `Benchmark_hub/`. Point these at your storage (e.g. symlinks) before training/inference.
 
 ## Data format
 Trajectories use the **universal 9D** layout `[rot6d(6), x, y, z]` per frame (camera-to-world, OpenGL,
@@ -98,7 +134,7 @@ python scripts/run_tkcam_benchmark_inference.py --track noframe \
 
 ## Evaluation
 ```bash
-python scripts/eval_benchmark_clatr.py --benchmark-root <Benchmark_hub> \
+python scripts/eval_benchmark_clatr.py --benchmark-root ./Benchmark_hub \
   --evaluator-ckpt <clatr.ckpt> --device cuda:0
 # add --dump-per-sample <dir> to also write per-sample matching scores + retrieval ranks (CSV)
 ```
@@ -141,8 +177,7 @@ If you use TKCAM, please cite our paper:
 }
 ```
 
-Related work used by this repository:
-
+Please also cite the works TKCAM builds on:
 ```bibtex
 @inproceedings{guo2024momask,
   title={MoMask: Generative Masked Modeling of 3D Human Motions},
