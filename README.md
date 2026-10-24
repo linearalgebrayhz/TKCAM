@@ -7,6 +7,7 @@
 <a href="https://arxiv.org/abs/2610.11105"><img src="https://img.shields.io/badge/arXiv-2610.11105-b31b1b.svg?logo=arxiv" alt="arXiv"></a>
 <a href="https://linearalgebrayhz.github.io/projects/TKCAM/"><img src="https://img.shields.io/badge/Project%20Page-TKCAM-blue.svg?logo=googlechrome&logoColor=white" alt="Project Page"></a>
 <a href="https://huggingface.co/datasets/yhz-linearalgebra/RealEstate10K-Cap"><img src="https://img.shields.io/badge/Dataset-RealEstate10K--Cap-yellow.svg?logo=huggingface" alt="RealEstate10K-Cap dataset on Hugging Face"></a>
+<a href="https://huggingface.co/yhz-linearalgebra/TKCAM"><img src="https://img.shields.io/badge/Checkpoints-TKCAM-yellow.svg?logo=huggingface" alt="TKCAM checkpoints on Hugging Face"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License"></a>
 
 </div>
@@ -25,7 +26,7 @@ Pipeline: **RVQ-VAE** tokenizes trajectories → **masked transformer** predicts
 - [x] [Project page](https://linearalgebrayhz.github.io/projects/TKCAM/)
 - [x] [RealEstate10K-Cap dataset](https://huggingface.co/datasets/yhz-linearalgebra/RealEstate10K-Cap)
 - [ ] Mixed dataset (RealEstate10K + E.T. + DataDoP) and benchmark split — *coming soon*
-- [ ] Pretrained checkpoints — *coming soon*
+- [x] [Pretrained checkpoints](https://huggingface.co/yhz-linearalgebra/TKCAM)
 
 ## Installation
 Tested on Linux with Python 3.9, PyTorch 2.8 (CUDA 12.8 wheels) and an NVIDIA A100. Requires an NVIDIA
@@ -53,8 +54,13 @@ Notes:
 
 ### Data and checkpoints
 The [RealEstate10K-Cap dataset](https://huggingface.co/datasets/yhz-linearalgebra/RealEstate10K-Cap)
-is available on Hugging Face. The mixed dataset, benchmark split, and pretrained checkpoints are
-**coming soon**. Large data files and checkpoints are not shipped in this repo (they are gitignored).
+and the [pretrained checkpoints](https://huggingface.co/yhz-linearalgebra/TKCAM) are available on
+Hugging Face. Download the checkpoints into `checkpoints/` (about 330 MB):
+```bash
+hf download yhz-linearalgebra/TKCAM --local-dir checkpoints
+```
+The mixed dataset and benchmark split are **coming soon**. Large data files and checkpoints are not
+shipped in this repo (they are gitignored).
 All scripts resolve paths **relative to the repository root** by default, so place or symlink your
 storage there:
 ```
@@ -79,7 +85,7 @@ normalization stats from each run's `opt.txt`.
 ```
 tkcam/        importable package: models/ data/ common/ utils/ options/ motion_loaders/
               + gen_camera.py, compute_dataset_statistics.py (library modules with a CLI)
-scripts/      entry points: train_vq, train_t2m_transformer, train_res_transformer,
+scripts/      entry points: generate (inference), train_vq, train_t2m_transformer, train_res_transformer,
               train_universal_evaluator, run_tkcam_benchmark_inference,
               run_tkcam_ablation_suite, eval_benchmark_clatr
 tools/        dataset construction & conversion (RealEstate10K/ET/GenDoP -> universal 9D, curation, merge)
@@ -116,14 +122,43 @@ python scripts/train_res_transformer.py --dataset_name realestate10k_rotmat --na
 The CLaTr evaluator used for FID/retrieval metrics during training is trained with
 `scripts/train_universal_evaluator.py`. Example launchers are in `configs/`.
 
-## Generation
-The text-only model configuration (`mtrans_25k_noframe_r4` / `rtrans_25k_noframe_r4`) is **T5-conditioned**; its checkpoints are coming soon.
+## Inference
+`scripts/generate.py` generates camera trajectories from a text prompt, optionally conditioned on a
+first frame or on up to 4 keyframes placed at chosen times:
+```bash
+# Text only
+python scripts/generate.py --mode noframe --duration 6 \
+  --text "The camera dollies forward slowly, revealing the living room."
+
+# Text + first frame
+python scripts/generate.py --mode firstframe --duration 5 --first_frame room.jpg \
+  --text "The camera pans left smoothly across the kitchen."
+
+# Text + keyframes at chosen times (image@seconds, up to 4)
+python scripts/generate.py --mode xframe --duration 8 \
+  --keyframe hall.jpg@0 --keyframe stairs.jpg@4.5 \
+  --text "The camera moves forward through the hallway, then tilts up toward the stairs."
+```
+- `--duration` is in seconds at 30 fps, rounded to whole 4-frame tokens. Requests below 3 s or above
+  11 s are clamped; training clips are ~4.0–9.3 s, so durations outside that range print a warning.
+- Each `--mode` loads its own checkpoint pair (`*_25kfixed_{noframe,1frame,xframe}_r4` under
+  `checkpoints/realestate10k_rotmat/`, from the [released checkpoints](https://huggingface.co/yhz-linearalgebra/TKCAM));
+  override with `--mtrans_name` / `--rtrans_name` (and `--which_epoch` / `--res_which_epoch`, default
+  `net_best_fid`). The script checks that the checkpoint matches the mode.
+- `--num_samples N` draws N samples (`--seed` for reproducibility); `--no_video` skips the MP4s.
+- Outputs per sample in `--out_dir` (default `generation/samples/`): `sample{i}_9d.npy` (`(T, 9)`
+  universal layout, see [Data format](#data-format)), `sample{i}_c2w.npy` (`(T, 4, 4)` camera-to-world
+  matrices), `sample{i}.mp4`, plus `meta.json` with the prompt, checkpoints, actual duration and the
+  keyframe time / frame / token mapping.
+
+### Other entry points
+All released models are **T5-conditioned**.
 The benchmark script reads the conditioning mode from the checkpoint's `opt.txt`; `gen_camera` needs it
 passed explicitly. (These commands are the ones validated in `RELEASE_TEST.md`.)
 ```bash
 # Single prompt -> trajectory .npy + an MP4 animation under generation/<ext>/
 python -m tkcam.gen_camera --dataset_name realestate10k_rotmat \
-  --name mtrans_25k_noframe_r4 --res_name rtrans_25k_noframe_r4 --conditioning_mode t5 \
+  --name mtrans_25kfixed_noframe_r4 --res_name rtrans_25kfixed_noframe_r4 --conditioning_mode t5 \
   --text_prompt "The camera dollies forward then arcs left around the living room." \
   --gpu_id 0 --ext demo
 
@@ -131,8 +166,9 @@ python -m tkcam.gen_camera --dataset_name realestate10k_rotmat \
 python scripts/run_tkcam_benchmark_inference.py --track noframe \
   --prompts-json <test.json> --out-dir <result_dir> \
   --dataset-name realestate10k_rotmat \
-  --mtrans-name mtrans_25k_noframe_r4 --rtrans-name rtrans_25k_noframe_r4 \
+  --mtrans-name mtrans_25kfixed_noframe_r4 --rtrans-name rtrans_25kfixed_noframe_r4 \
   --apply-residual --device cuda:0
+# --track firstframe / sparsekeyframe with *_25kfixed_1frame_r4 / *_25kfixed_xframe_r4
 ```
 
 ## Evaluation
@@ -151,7 +187,7 @@ python scripts/eval_benchmark_clatr.py --benchmark-root ./Benchmark_hub \
 - `viz/visualize_clatr9d_blender.py` runs **inside Blender** (`blender --background --python ...`); it
   imports `bpy` and will not run under plain Python.
 - Checkpoints follow `checkpoints/{dataset_name}/{run_name}/model/` with `meta/Mean.npy`/`Std.npy` and
-  `opt.txt`; the masked/residual transformers select `net_best_fid.tar`.
+  `opt.txt`; the masked/residual transformers load `net_best_fid.tar` by default.
 
 ## Acknowledgements
 TKCAM builds directly on excellent prior work — please cite/credit them:

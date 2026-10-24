@@ -1883,76 +1883,23 @@ if __name__ == '__main__':
             import gc
             gc.collect() 
 
+
 """
-Enhanced Camera Trajectory Generation Script with 3D Animation Support
+Usage (module CLI; for everyday inference prefer scripts/generate.py, which takes durations in
+seconds, a first-frame image, or keyframes at given times):
 
-Usage Examples:
+python -m tkcam.gen_camera --dataset_name realestate10k_rotmat \
+    --name mtrans_25kfixed_noframe_r4 --res_name rtrans_25kfixed_noframe_r4 --conditioning_mode t5 \
+    --text_prompt "The camera dollies forward then arcs left around the living room." \
+    --motion_length 180 --gpu_id 0 --ext demo
 
-CUDA_VISIBLE_DEVICES=6 python gen_camera.py \
-    --dataset_name realestate10k_rotmat \
-    --text_path camera_prompts.txt \
-    --name mtrans_5k_newdata_xframe_r4_latest \
-    --res_name rtrans_5k_newdata_xframe_r4_latest \
-    --conditioning_mode t5 \
-    --gpu_id 0 \
-    --repeat_times 2 \
-    --time_steps 10 \
-    --cond_scale 3 \
-    --temperature 0.3 \
-    --topkr 0.9 \
-    --ext camera_5k_xframes_r4_latest_noframe_inference \
-
-
-    --use_keyframes \
-    --keyframe_dir /data4/haozhe/CamTraj/data/processed_estate/train_frames/0172e6a29a2f00e2   \
-    --keyframe_indices "0,60,120,180"  
-    
-
-python gen_camera.py   
-    --dataset_name realestate10k_rotmat   
-    --name mtrans_5k_newdata_xframe1   
-    --res_name rtrans_5k_newdata_xframe1   
-    --text_prompt "The camera pans right slowly and smoothly, gradually revealing more of the room's right side, including the kitchen area through the doorway, then continues panning right"   
-    --use_keyframes   
-    --keyframe_dir /data4/haozhe/CamTraj/data/processed_estate/train_frames/0172e6a29a2f00e2   
-    --keyframe_indices "0,60,120,180"   
-    --conditioning_mode t5
-
-python gen_camera.py \
-    --dataset_name realestate10k_quat \
-    --name mtrans_reduce_data \
-    --res_name rtrans_reduce_data \
-    --gpu_id 0 \
-    --text_path camera_prompts.txt \
-    --repeat_times 3 \
-    --time_steps 10 \
-    --cond_scale 3 \
-    --temperature 1.0 \
-    --topkr 0.9 \
-    --ext camera_quat_baseline
-
-python gen_camera.py \
-  --dataset_name realestate10k_quat \
-  --name mtrans_reduce_mid \
-  --text_prompt "A camera slowly pans left then zooms in"
-
-# Demo the animation features
-python demo_camera_animation.py --demo-type full
-
-# Quick animation demo
-python demo_camera_animation.py --demo-type quick
-
-Animation Features:
-- Smooth camera movement with orientation arrows
-- Dynamic trail showing recent camera positions
-- Real-time velocity and acceleration analysis
-- Format-aware visualization (5D/6D/12D)
-- Statistical debugging information
-- Multi-panel debug view with comprehensive analysis
-
-echo "Batch Camera Trajectory Generation with Animations completed!"
-echo "Results saved in ./generation/camera_batch_generation/"
-echo "Generated static plots, animations, and debug visualizations"
-echo "Check the animations folder for .mp4 files with smooth 3D movement"
-nvidia-smi 
+--name / --res_name select the mask / residual transformer runs under
+checkpoints/{dataset_name}/; --motion_length is in frames (default 200, i.e. ~6.7 s at 30 fps).
+Visual conditioning (first-frame or sparse-keyframe checkpoints) needs --use_keyframes plus
+--keyframe_dir <dir with jpg/png frames> and, for sparse keyframes, --keyframe_indices "0,60,120"
+(frame indices, matched to the images in sorted order).
+--text_path <file> runs one prompt per line in the form "text#length#frame_source", where length is
+in frames and frame_source is an optional frame directory (or a scene id, looked up under
+./data/processed_estate/train_frames).
+Outputs go to generation/<ext>/: joints/<k>/*.npy (12D trajectories) and animations/<k>/*.mp4.
 """
